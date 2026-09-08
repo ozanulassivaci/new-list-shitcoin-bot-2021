@@ -1,0 +1,18 @@
+# credentials
+.env
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# selenium / webdriver
+geckodriver.log
+*.crx
+
+# IDE
+.idea/
+
+# bot-generated backups
+*.backup.csv
