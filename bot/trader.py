@@ -8,13 +8,16 @@ import time
 
 import pyperclip as pc
 
+import positions
+import risk_config
 from pancake_dex import Pancake
+from price_check import get_token_price
+from price_utils import from_usd, to_usd
 from storage import append_csv_row, backup_csv
 from selenium.webdriver.common.by import By
 
 PANCAKESWAP_URL = "https://pancakeswap.finance/swap"
 COINMARKETCAP_NEW_URL = "https://coinmarketcap.com/new/"
-BNB_TO_USD_URL = "https://valuta.exchange/tr/bnb-to-usd"
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NEW_LISTINGS_DIR = os.path.join(PROJECT_ROOT, "data", "new_listings")
@@ -27,8 +30,6 @@ SLEEP_SHORT = 2
 SLEEP_MEDIUM = 3
 SLEEP_LONG = 5
 SLEEP_LONGER = 10
-
-coin_value = 0
 
 
 class Swap:
@@ -44,9 +45,9 @@ class Swap:
         self.today_coin_names_csv_list = []
         self.bought_coin_names_csv = []
         self.coinmarketcap_new = COINMARKETCAP_NEW_URL
-        self.bnb_to_usd_url = BNB_TO_USD_URL
         self.usd = 0
-        self.coin_value = coin_value
+        self.coin_value = 0
+        self.current_token_name = ""
         self.append_token_values_bought_token_csv = []
 
     # Walk today's new-listing CSV and Binance's bought-coin CSV in order.
@@ -80,6 +81,7 @@ class Swap:
 
     def buy_tokens(self):
         for search_and_buy_this_token in self.today_coin_names_csv_list:
+            self.current_token_name = search_and_buy_this_token
             self.append_token_values_bought_token_csv.append(search_and_buy_this_token)
 
             self.PancakeImport.MetaMaskLoginImport.browser.get(self.coinmarketcap_new)
@@ -108,36 +110,45 @@ class Swap:
                         append_csv_row(f"{self.bought_csv_file_path}/{self.bought_csv_docs_name}", row)
                         self.copy_csv()
 
-    def bnb_to_usd_calculator(self):
+    def size_and_enter_position(self):
+        """
+        Split the available BNB evenly across the coins queued for this run,
+        clamp it to the configured risk profile (MIN/MAX_SPEND_PER_COIN_USD,
+        see bot/risk_config.py), and type the resulting amount into the swap
+        input box. The clamping and the USD<->BNB conversion are new; the
+        even-split-then-read-the-input-box part is the original design, but
+        the result was never actually entered into the input box before --
+        the original bot always bought whatever amount happened to already
+        be sitting in that field.
+        """
         self.PancakeImport.MetaMaskLoginImport.browser.find_element(By.XPATH, "//*[@id='swap-currency-input']/div[2]/div/div[2]/button").click()
         time.sleep(SLEEP_SHORT)
 
         time.sleep(15)
 
-        bnb_value = self.PancakeImport.MetaMaskLoginImport.browser.find_element(By.XPATH, "//*[@id='swap-currency-input']/div[2]/div/div[1]/div/input").get_attribute("value")
+        bnb_input = self.PancakeImport.MetaMaskLoginImport.browser.find_element(By.XPATH, "//*[@id='swap-currency-input']/div[2]/div/div[1]/div/input")
+        available_bnb = float(bnb_input.get_attribute("value"))
         will_buy_coins_len = len(self.today_coin_names_csv_list)
-        our_price = float(bnb_value) / float(will_buy_coins_len)
+        even_share_bnb = available_bnb / float(will_buy_coins_len)
 
-        # amount (in BNB) to spend on this coin
-        self.PancakeImport.MetaMaskLoginImport.browser.get(f"{self.bnb_to_usd_url}?amount={our_price}")
-        time.sleep(SLEEP_LONG)
-        self.usd = self.PancakeImport.MetaMaskLoginImport.browser.find_element(By.XPATH, "//*[@id='__next']/div[2]/div[3]/div[2]/input").get_attribute("value")
-
-        # USD value of the amount we're about to spend
-        if float(self.usd) < 1.0:
-            self.today_coin_names_csv_list.clear()
-
+        profile = risk_config.get_risk_profile()
+        even_share_usd = to_usd(even_share_bnb, "BNB")
+        usd_to_spend = max(profile["min_spend_usd"], min(profile["max_spend_usd"], even_share_usd))
+        self.usd = usd_to_spend
         self.append_token_values_bought_token_csv.append(self.usd)
 
-        self.PancakeImport.MetaMaskLoginImport.browser.get(self.pancake_exchange)
-        time.sleep(SLEEP_MEDIUM)
+        if usd_to_spend < 1.0:
+            self.today_coin_names_csv_list.clear()
+            return
+
+        bnb_to_spend = from_usd(usd_to_spend, "BNB")
+        bnb_input.clear()
+        bnb_input.send_keys(str(bnb_to_spend))
+        time.sleep(SLEEP_SHORT)
 
     def pancake_ex(self):
         self.PancakeImport.MetaMaskLoginImport.browser.get(self.pancake_exchange)
         time.sleep(SLEEP_LONG)
-
-        # figure out how much to spend by splitting the available BNB across the coins to buy
-        self.bnb_to_usd_calculator()
 
         # find and select the token by contract address
         self.PancakeImport.MetaMaskLoginImport.browser.find_element(By.XPATH, "//*[@id='swap-currency-output']/div[1]/button").click()
@@ -155,37 +166,26 @@ class Swap:
         self.PancakeImport.MetaMaskLoginImport.browser.find_element(By.XPATH, "//*[@id='__next']/div[1]/div[2]/div[2]/div/div[3]/button").click()
         time.sleep(SLEEP_LONG)
 
-        # watch the coin's chart after buying
-        coin_bogged_url = f"https://charts.bogged.finance/?c=bsc&t={new_list_token_binance_smart_contract}"
-        self.PancakeImport.MetaMaskLoginImport.browser.get(coin_bogged_url)
-        time.sleep(SLEEP_MEDIUM)
+        # figure out how much to spend and enter it, now that the token is selected
+        self.size_and_enter_position()
 
+        # watch the coin's chart after buying and record what we paid
         try:
-            self.PancakeImport.MetaMaskLoginImport.browser.find_element(By.XPATH, "//*[@id='WEB3_CONNECT_MODAL_ID']/div/div/div[2]/div[1]/div").click()
+            self.coin_value = get_token_price(self.PancakeImport.MetaMaskLoginImport.browser, new_list_token_binance_smart_contract)
         except Exception:
-            pass
+            self.coin_value = 0
 
-        time.sleep(SLEEP_LONG)
-
-        try:
-            self.coin_value = self.PancakeImport.MetaMaskLoginImport.browser.find_element(
-                By.XPATH, "//*[@id='headlessui-listbox-button-8']/div/div[2]/h4[1]/span"
-            ).get_attribute("title")
-        except Exception:
-            time.sleep(SLEEP_MEDIUM)
-
-        try:
-            self.coin_value = self.PancakeImport.MetaMaskLoginImport.browser.find_element(
-                By.XPATH, "//*[@id='headlessui-listbox-button-8']/div/div[2]/h4[1]"
-            ).text
-        except Exception:
-            time.sleep(SLEEP_MEDIUM)
-
-        self.append_token_values_bought_token_csv.append(coin_value)
+        self.append_token_values_bought_token_csv.append(self.coin_value)
         append_csv_row(f"{self.bought_csv_file_path}/{self.bought_csv_token_name}", self.append_token_values_bought_token_csv)
+
+        if self.coin_value:
+            positions.add_position(self.current_token_name, new_list_token_binance_smart_contract, self.coin_value, self.usd)
 
 
 if __name__ == "__main__":
+    import pnl_graph
+    from seller import Seller
+
     cap = Swap()
     # manual step-by-step alternative to metamask_py(), kept for reference:
     # cap.PancakeImport.MetaMaskLoginImport.MetaMask()
@@ -193,6 +193,13 @@ if __name__ == "__main__":
     # cap.PancakeImport.MetaMaskLoginImport.add_bnb_chain()
     cap.PancakeImport.metamask_py()
     cap.pancake_py()
+
+    # positions.csv / sold.csv already hold whatever was bought and not yet
+    # sold from a previous run, so this resumes monitoring them automatically
+    seller = Seller(cap.PancakeImport)
+
     while True:
         cap.read_today_and_binance_list_token_today()
         cap.buy_tokens()
+        seller.check_and_sell_positions()
+        pnl_graph.generate_weekly_chart()

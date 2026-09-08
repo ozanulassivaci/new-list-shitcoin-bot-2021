@@ -61,8 +61,11 @@ word and "BNB" in word` check in `GetCapNewListedToday.go2Cap`.
 
 ## What actually got implemented
 
-The buy-side pipeline matches the design closely; the position-sizing,
-sell, and resume logic were designed but never built:
+The buy-side pipeline matches the design closely. The position-sizing,
+sell, resume, and weekly-graph logic were designed but missing from the
+code as of the last cleanup pass; they have since been filled in based on
+a description of the original exit rule, in the same style as the rest of
+the bot:
 
 | Design step | Status | Where |
 | --- | --- | --- |
@@ -70,11 +73,40 @@ sell, and resume logic were designed but never built:
 | Scrape CoinMarketCap for new BNB chain listings | Implemented | `bot/scraper.py` |
 | Buy the coin via PancakeSwap | Implemented | `bot/trader.py` (`Swap.pancake_ex`) |
 | Record the purchase | Implemented | `data/bought/`, `bot/storage.py` |
-| Split remaining BNB evenly across queued coins | Implemented (simplified) | `bot/trader.py` (`bnb_to_usd_calculator`) — this is the one part of position sizing that made it in, but it is an even split, not the risk-profile-based sizing from the design |
-| User-set risk profile (PNL / ROE / min-max per coin) | Not implemented | no equivalent in code |
-| Resume monitoring of previously bought, unsold coins on startup | Not implemented | no equivalent in code |
-| Auto-sell on profit/loss target | Not implemented | no equivalent in code |
-| Profit/loss and weekly earnings graphs | Not implemented | no equivalent in code |
+| User-set risk profile (min/max money per coin) | Implemented | `bot/risk_config.py`, read from `.env`, re-read every loop so it's editable without restarting |
+| Split remaining BNB across queued coins, clamped to the risk profile | Implemented | `bot/trader.py` (`Swap.size_and_enter_position`) |
+| Resume monitoring of previously bought, unsold coins on startup | Implemented | `bot/positions.py` — state already lives in `data/bought/positions.csv` / `data/sold/sold.csv`, so resuming is just reading those files again |
+| Auto-sell on profit/loss target | Implemented | `bot/seller.py` (`Seller`) — see the exit rule below |
+| Weekly profit/loss graph | Implemented | `bot/pnl_graph.py`, reads `data/sold/sold.csv` |
 
-In short: the bot buys, but it never sells anything on its own — selling
-was always meant to happen, but that part of the design was never coded.
+### The exit rule
+
+The rule, as designed: most coins that don't pop early just trend to
+zero, so cut losses on those; but a coin that does pop can keep running
+far past the point you'd normally take profit, so the goal is to ride it
+as long as it keeps making new highs and only get out once it's clearly
+turned.
+
+- **First 24 hours:** if the price never reaches +30% above the buy
+  price in that window, sell — this coin isn't going to be one of the
+  ones that runs.
+- **After +30% is reached:** keep holding through normal up-and-down
+  noise (a coin bouncing 90% → 70% → 80% → 100% is still fine). Only
+  sell once the price has dropped for a few checks in a row from its
+  peak — a confirmed reversal (e.g. peaking at +170%, then 160 → 150 →
+  140 → falling) — to lock in gains before the usual post-pump crash.
+
+Implemented in `bot/seller.py` as `STOP_LOSS_WINDOW_HOURS` /
+`STOP_LOSS_THRESHOLD_PCT` (the 24h / 30% rule) and
+`CONSECUTIVE_DROPS_TO_SELL` (how many checks in a row have to drop before
+it counts as a reversal). The gain/peak tracking and the reversal check
+are plain Python and were verified against both examples above; the
+PancakeSwap steps used to actually execute a sell were never run against
+the live site, unlike the buy flow, which at least worked at some point
+in 2022 (see the historical CSVs in `data/`) — treat the sell-side
+Selenium code as a rougher draft than the rest of the bot.
+
+In short: the bot now buys, sizes the position, tracks it, and knows
+when it should sell — the part most likely to need fixing before it
+would actually work end to end is the handful of PancakeSwap selectors
+in `bot/seller.py`'s `_sell` method.
