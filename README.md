@@ -30,12 +30,16 @@ to develop my programming skills.
 - Generates a weekly profit/loss chart from closed positions
 - Keeps a running CSV log of tokens already bought, to avoid buying the
   same coin twice
+- Small tkinter GUI (`bot/gui.py`) to start/stop the bots, edit the risk
+  profile, and see open/sold positions and the weekly chart, instead of
+  running everything from the command line
 - Small utility modules for reading Binance's public market data and
   converting between BNB and USD (`bot/binance_api.py`, `bot/price_utils.py`)
 
 ## Tech stack
 
 - Python 3.8+
+- tkinter (GUI, part of the Python standard library, not in requirements.txt)
 - Selenium + `webdriver-manager` (Chrome automation)
 - MetaMask browser extension (`.crx`, not included, see Installation)
 - pandas (CSV handling)
@@ -75,6 +79,20 @@ to develop my programming skills.
 
 ## Usage
 
+### GUI
+
+```bash
+python bot/gui.py
+```
+
+A small tkinter control panel (no extra dependency beyond what's already
+in `requirements.txt`) to start/stop the scraper and trader, edit the risk
+profile, and see open positions, sold positions, and the weekly PNL chart.
+It only starts/stops the two scripts below as separate processes and reads
+the same CSV/`.env` files they do — it has no trading logic of its own.
+
+### Command line
+
 Run the scraper to start logging newly listed BNB chain coins:
 
 ```bash
@@ -96,6 +114,7 @@ previous run automatically (see [docs/ALGORITHM.md](docs/ALGORITHM.md)).
 
 ```
 bot/                  bot source code
+  gui.py                desktop control panel (start/stop, risk profile, positions, chart)
   scraper.py           CoinMarketCap scraper (new BNB chain listings)
   metamask_wallet.py    MetaMask Selenium automation
   pancake_dex.py         PancakeSwap connection and settings
@@ -115,7 +134,7 @@ data/
   reports/                  weekly_pnl.png
 docs/                  algorithm diagrams, case study and notes from the original design
   ALGORITHM.md           write-up of the design, see the Design section below
-assets/icons/          notification icons
+assets/icons/          window icon and logo used by bot/gui.py
 tests/                 ad-hoc scripts used while developing individual pieces
 ```
 

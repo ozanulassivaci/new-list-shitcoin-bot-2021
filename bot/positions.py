@@ -47,6 +47,13 @@ def load_open_positions():
         return [row for row in csv.DictReader(f) if row["Address"] not in sold_addresses]
 
 
+def load_sold_positions():
+    """Return every closed position, most recently sold last."""
+    _ensure_file(SOLD_CSV, SOLD_HEADER)
+    with open(SOLD_CSV, newline="") as f:
+        return list(csv.DictReader(f))
+
+
 def update_position_tracking(address, peak_gain_pct, recent_gain_pct_history):
     """Rewrite positions.csv with the latest peak/recent gain values for one address."""
     _ensure_file(POSITIONS_CSV, POSITIONS_HEADER)
