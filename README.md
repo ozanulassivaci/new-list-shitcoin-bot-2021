@@ -5,14 +5,12 @@ BNB Smart Chain and attempts to automatically buy them on PancakeSwap through
 a MetaMask browser extension.
 
 > This is an old educational/personal project from high school, shared for
-> portfolio purposes. It is NOT financial advice, was not used to trade with
+> portfolio purposes. It is NOT financial advice, NOT USE FOR TRADE
 > significant real funds, and comes with no guarantee of profitability or
 > safety. Use entirely at your own risk.
 
 This project was a simple self-study exercise I built in high school (2021)
 to develop my programming skills.
-
-> 📝 TODO: add the course/resource that inspired this project
 
 ## Features
 
@@ -94,13 +92,26 @@ bot/                  bot source code
 data/
   new_listings/         scraper output, one CSV per day
   bought/                 log of tokens the bot has bought
-docs/                  algorithm diagrams and notes from the original design
+docs/                  algorithm diagrams, case study and notes from the original design
+  ALGORITHM.md           write-up of the design, see the Design section below
 assets/icons/          notification icons
 tests/                 ad-hoc scripts used while developing individual pieces
 ```
 
+## Design
+
+The original flowcharts and a short case study on why early detection
+matters are in [docs/ALGORITHM.md](docs/ALGORITHM.md), along with a
+step-by-step comparison of what was designed versus what actually got
+implemented (short version: the bot buys, but the sell side of the
+design was never built).
+
 ## Limitations
 
+- Only the buy side of the original design was implemented: there is no
+  risk-based position sizing, no automatic selling on a profit/loss
+  target, and no resuming of previously bought coins on restart. See
+  [docs/ALGORITHM.md](docs/ALGORITHM.md) for the full comparison.
 - The MetaMask `.crx` extension file is not included (18 MB third-party
   binary); you need to download your own copy and place it in `bot/`.
 - Selenium automation is brittle: it relies on hardcoded XPath selectors
